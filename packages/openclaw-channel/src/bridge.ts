@@ -1,4 +1,6 @@
 import { NekordBotClient } from "@nekord/bot-sdk";
+import { isDeepStrictEqual } from "node:util";
+import { BOT_TYPING_INTERVAL_MS } from "@tescord/types";
 import type {
   BotConfigUpdatePayload,
   Channel,
@@ -129,8 +131,13 @@ export class AccountBridge {
         job.controller.abort(new ChannelError("TURN_CANCELLED"));
   }
   private applyConfig(config: BotConfigUpdatePayload): void {
-    this.cancelJobs();
-    this.#config = config;
+    const normalized: BotConfigUpdatePayload = {
+      application: config.application,
+      channels: config.channels,
+      commands: config.commands,
+    };
+    if (!isDeepStrictEqual(this.#config, normalized)) this.cancelJobs();
+    this.#config = normalized;
     const device = config.application.device;
     if (
       device?.deviceId !== this.identity.identity.deviceId ||
@@ -289,7 +296,9 @@ export class AccountBridge {
         senderIsBot: Boolean(message.author.isBot),
         messageId: message.id,
         timestamp: Date.parse(message.createdAt),
-        text: stripBotMention(decoded.text, application.userId),
+        text:
+          stripBotMention(decoded.text, application.userId) ||
+          decoded.text.trim(),
         history,
         message,
       },
@@ -353,15 +362,22 @@ export class AccountBridge {
     };
     const typing = async () => {
       assertCurrent();
-      await this.client.typing(turn.channel.id, signal);
+      await this.client.typing(
+        turn.channel.id,
+        AbortSignal.any([signal, AbortSignal.timeout(2000)]),
+      );
     };
+    let pendingTyping: Promise<void> | undefined;
     const ticker = scheduler.schedule({
       id: "typing",
       delayMs: 0,
-      everyMs: 8000,
+      everyMs: BOT_TYPING_INTERVAL_MS,
       run: async () => {
         try {
-          await typing();
+          if (!turn.interaction?.ephemeral) {
+            pendingTyping = typing();
+            await pendingTyping;
+          }
         } catch (error) {
           if (!signal.aborted) this.options.error?.(safeErrorCode(error));
         }
@@ -395,7 +411,13 @@ export class AccountBridge {
       );
     } finally {
       ticker.cancel();
+      await pendingTyping?.catch(() => {});
       await Promise.allSettled(streams.map((stream) => stream.close()));
+      if (!turn.interaction?.ephemeral) {
+        await this.client
+          .stopTyping(turn.channel.id, AbortSignal.timeout(2000))
+          .catch(() => {});
+      }
     }
   }
   close(): Promise<void> {

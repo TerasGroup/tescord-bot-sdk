@@ -57,6 +57,7 @@ test("bounded account queues abort current and queued turns on permission revoca
     },
   );
   vi.spyOn(client, "typing").mockResolvedValue();
+  const stopTyping = vi.spyOn(client, "stopTyping").mockResolvedValue();
   sockets.on("connection", (socket) => {
     socket.send(JSON.stringify({ op: 10, d: { heartbeatInterval: 1000 } }));
     socket.on("message", (data) => {
@@ -112,6 +113,9 @@ test("bounded account queues abort current and queued turns on permission revoca
     const send = (value: unknown) => socket.send(JSON.stringify(value));
     send({ op: 0, t: "MESSAGE_CREATE", d: message("one", "first") });
     await vi.waitFor(() => expect(dispatch).toHaveBeenCalledTimes(1));
+    await bridge.refreshConfig();
+    expect(aborted).toBe(false);
+    expect(bridge.pending).toBe(1);
     send({ op: 0, t: "MESSAGE_CREATE", d: message("two", "queued") });
     send({ op: 0, t: "MESSAGE_CREATE", d: message("three", "overflow") });
     await vi.waitFor(() =>
@@ -129,6 +133,10 @@ test("bounded account queues abort current and queued turns on permission revoca
     });
     await vi.waitFor(() => expect(bridge.pending).toBe(0));
     expect(aborted).toBe(true);
+    expect(stopTyping).toHaveBeenCalledWith(
+      channel.id,
+      expect.any(AbortSignal),
+    );
     expect(dispatch).toHaveBeenCalledTimes(1);
     expect(() => bridge.assertCurrent(channel.id)).toThrow();
     const ledger = await fs.readFile(

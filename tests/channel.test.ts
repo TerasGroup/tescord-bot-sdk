@@ -116,6 +116,8 @@ test("context takes exactly N before sequence and skips failures without backfil
     ),
   ).toEqual([]);
   expect(get).not.toHaveBeenCalled();
+  expect(await readHistory(client, identity, app, channel, 0)).toEqual([]);
+  expect(get).not.toHaveBeenCalled();
 });
 test("identity survives reload, detects private key corruption and ledger persists only event IDs", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "nekord-identity-"));

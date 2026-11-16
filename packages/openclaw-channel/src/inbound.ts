@@ -57,7 +57,7 @@ export async function readHistory(
   signal?: AbortSignal,
 ): Promise<HistoryMessage[]> {
   const limit = effectiveContextLimit(application, channel.id);
-  if (limit === 0) return [];
+  if (limit === 0 || !Number.isSafeInteger(before) || before <= 0) return [];
   let messages: Message[];
   try {
     messages = await client.getMessages(channel.id, { before, limit }, signal);

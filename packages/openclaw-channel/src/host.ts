@@ -121,9 +121,8 @@ export async function dispatchHostTurn(
   const media: InboundMediaFacts[] = [];
   const mediaRoot = path.join(bridge.directory, "inbound-media");
   let staging: string | undefined;
-  let stream = turn.stream();
-  let delivered = false;
-  let privateText = "";
+  const stream = turn.stream();
+  let replyText = "";
   try {
     if (turn.message?.attachments?.length) {
       await fs.mkdir(mediaRoot, { recursive: true, mode: 0o700 });
@@ -258,10 +257,8 @@ export async function dispatchHostTurn(
       if (urls.length > 10) throw new ChannelError("TOO_MANY_ATTACHMENTS");
       if (urls.length && turn.interaction)
         throw new ChannelError("INTERACTION_ATTACHMENTS_UNSUPPORTED");
-      if (delivered && !turn.interaction) stream = turn.stream();
-      if (turn.interaction)
-        privateText = [privateText, payload.text].filter(Boolean).join("\n\n");
-      await stream.finish(turn.interaction ? privateText : payload.text);
+      replyText = [replyText, payload.text].filter(Boolean).join("\n\n");
+      await stream.publishText(replyText);
       const ids = [...stream.messageIds];
       if (urls.length) {
         const attachments = [];
@@ -278,7 +275,6 @@ export async function dispatchHostTurn(
           );
         ids.push(...(await stream.sendAttachments(attachments)));
       }
-      delivered = true;
       if (!stream.visible && !ids.length)
         return {
           visibleReplySent: false,
@@ -315,10 +311,14 @@ export async function dispatchHostTurn(
         [PLUGIN_COMMAND_DISPATCH]: turn.command?.decision,
         onPartialReply: async (payload) => {
           turn.assertCurrent();
-          if (payload.text) stream.update(payload.text);
+          if (payload.text)
+            stream.update(
+              [replyText, payload.text].filter(Boolean).join("\n\n"),
+            );
         },
       },
     });
+    await stream.finish();
   } finally {
     if (staging && path.dirname(staging) === mediaRoot)
       await fs.rm(staging, { recursive: true, force: true });

@@ -26,7 +26,7 @@
   },
   "devDependencies": {
     "@nekord/bot-sdk": "workspace:*",
-    "@tescord/types": "file:../../vendor/tescord-types-0.3.7-209f6126b11ffcef.tgz"
+    "@tescord/types": "file:../../vendor/tescord-types-0.3.7-fdb88d0388c2405d.tgz"
   },
   "scripts": {
     "build": "tsup",

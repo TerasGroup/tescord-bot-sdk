@@ -35,7 +35,15 @@ const packets: { t?: string; d?: unknown }[] = [];
 let socket: WebSocket | undefined;
 const modelRequests: string[] = [];
 const modelBodies: string[] = [];
+const sessionProof: {
+  encrypted: boolean;
+  previousTriggerRetained: boolean;
+  previousReplyRetained: boolean;
+  noNewHistory: boolean;
+  bareMentionTriggered: boolean;
+}[] = [];
 let allowMockModel = false;
+let modelDelayMs = 22000;
 const modelServer = createHttpServer((request, response) => {
   modelRequests.push(request.url ?? "");
   if (!allowMockModel) {
@@ -63,7 +71,7 @@ const modelServer = createHttpServer((request, response) => {
         response.write(frame("", "stop"));
         response.end("data: [DONE]\n\n");
       }
-    }, 1800);
+    }, modelDelayMs);
   });
 });
 const base = "http://127.0.0.1:3101";
@@ -214,6 +222,7 @@ try {
     name: "OpenClawSmoke",
   })) as BotTokenResponse;
   secrets.push(bot.token);
+  assert.equal(bot.application.defaultContextLimit, 5);
   const channels: { id: string; isE2EE: boolean }[] = [];
   for (const encrypted of [false, true])
     channels.push(
@@ -485,8 +494,10 @@ try {
   assert.deepEqual(modelRequests, []);
   const nativeModelRequests = modelRequests.length;
   allowMockModel = true;
+  const channelCanaries: string[] = [];
   for (const channel of channels) {
     const canary = `history-canary-${crypto.randomUUID()}`;
+    const triggerPhrase = `stream-smoke-${crypto.randomUUID()}`;
     const sendBody = async (text: string) => {
       const devices = (await api(
         `/api/channels/${channel.id}/e2ee/devices`,
@@ -503,12 +514,15 @@ try {
             ),
           )
         : text;
-      await api(`/api/channels/${channel.id}/messages`, auth, "POST", {
+      return await api(`/api/channels/${channel.id}/messages`, auth, "POST", {
         content,
         isEncrypted: channel.isE2EE,
         nonce: crypto.randomUUID(),
       });
     };
+    const excluded = `excluded-canary-${crypto.randomUUID()}`;
+    await sendBody(excluded);
+    for (let index = 0; index < 4; index++) await sendBody(`context-${index}`);
     await sendBody(canary);
     const before: number = modelRequests.length;
     await new Promise((resolve) => setTimeout(resolve, 350));
@@ -517,7 +531,10 @@ try {
       before,
       "ordinary channel messages must not trigger the model",
     );
-    await sendBody(`<@${bot.application.userId}> stream-smoke`);
+    const packetStart = packets.length;
+    const trigger = (await sendBody(
+      `<@${bot.application.userId}> ${triggerPhrase}`,
+    )) as Message;
     const result = await until(
       async () => {
         const history = (await api(
@@ -525,7 +542,9 @@ try {
           auth,
         )) as Message[];
         const message = history.find(
-          (item) => item.authorId === bot.application.userId,
+          (item) =>
+            item.authorId === bot.application.userId &&
+            item.replyToId === trigger.id,
         );
         if (!message) return undefined;
         const devices = (await api(
@@ -555,6 +574,93 @@ try {
       modelBodies.at(-1)?.includes(canary),
       "N lookback must reach the actual host model context",
     );
+    assert.equal(
+      modelBodies.at(-1)?.includes(excluded),
+      false,
+      "default lookback excludes the sixth preceding message",
+    );
+    for (const previous of channelCanaries)
+      assert.equal(
+        modelBodies.at(-1)?.includes(previous),
+        false,
+        "channel sessions must remain isolated",
+      );
+    channelCanaries.push(canary);
+    const typing = packets
+      .slice(packetStart)
+      .filter(
+        (packet) =>
+          packet.t === "TYPING_START" &&
+          (packet.d as { channelId: string }).channelId === channel.id,
+      );
+    assert.ok(typing.length >= 6, "long-running turn must renew typing");
+    assert.equal(
+      (typing[0]!.d as { user: { isBot: boolean } }).user.isBot,
+      true,
+    );
+    await until(
+      async () =>
+        packets
+          .slice(packetStart)
+          .some(
+            (packet) =>
+              packet.t === "TYPING_STOP" &&
+              (packet.d as { channelId: string }).channelId === channel.id,
+          ),
+      Boolean,
+    );
+    await api(
+      `/api/guilds/gld_default_01/bots/${bot.application.id}/channels/${channel.id}`,
+      auth,
+      "PUT",
+      { contextLimit: 0, respondToAll: false },
+    );
+    modelDelayMs = 1800;
+    const continuation = (await sendBody(
+      `<@${bot.application.userId}>${channel.isE2EE ? "" : " continue-session"}`,
+    )) as Message;
+    await until(async () => {
+      const history = (await api(
+        `/api/channels/${channel.id}/messages`,
+        auth,
+      )) as Message[];
+      return history.some(
+        (item) =>
+          item.authorId === bot.application.userId &&
+          item.replyToId === continuation.id &&
+          (item.revision ?? 0) >= 1,
+      );
+    }, Boolean);
+    const proof = {
+      encrypted: channel.isE2EE,
+      previousTriggerRetained:
+        modelBodies.at(-1)?.includes(triggerPhrase) === true,
+      previousReplyRetained:
+        modelBodies.at(-1)?.includes("local-model-answer-final") === true,
+      noNewHistory: true,
+      bareMentionTriggered: channel.isE2EE,
+    };
+    sessionProof.push(proof);
+    assert.equal(
+      proof.previousTriggerRetained,
+      true,
+      "continuous session retains the prior user turn with zero new history",
+    );
+    assert.equal(
+      proof.previousReplyRetained,
+      true,
+      "continuous session retains the prior assistant reply with zero new history",
+    );
+    await until(
+      async () =>
+        packets.some(
+          (packet) =>
+            packet.t === "TYPING_STOP" &&
+            (packet.d as { channelId: string }).channelId === channel.id,
+        ),
+      Boolean,
+    );
+    modelDelayMs = 22000;
     outcomes.push({
       encrypted: channel.isE2EE,
       command: "mock-model-stream",
@@ -577,7 +683,11 @@ try {
     headers: { Authorization: `Bot ${bot.token}` },
   });
   assert.equal(oldToken.status, 401);
-  assert.equal(modelRequests.length, 2);
+  assert.equal(modelRequests.length, 4);
+  assert.equal(
+    sessionProof.some((proof) => proof.bareMentionTriggered),
+    true,
+  );
   await fs.writeFile(
     path.join(evidence, "result.json"),
     JSON.stringify(
@@ -585,6 +695,13 @@ try {
         passed: outcomes.length + 2,
         failed: 0,
         outcomes,
+        sustainedTypingAndStop: true,
+        continuousChannelSessions: true,
+        bareMentionTriggered: sessionProof.some(
+          (proof) => proof.bareMentionTriggered,
+        ),
+        sessionProof,
+        defaultContextLimit: 5,
         proactiveEncryptedDm: true,
         resetTokenRejected: true,
         nativeModelRequests,
@@ -601,6 +718,21 @@ try {
     "PASS real OpenClaw Gateway + Tescord: native commands, plaintext/E2EE ephemeral, trigger/context/stream edits with local mock model, CLI proactive encrypted DM, Token reset; 0 paid model requests",
   );
 } finally {
+  await fs.writeFile(
+    path.join(evidence, "session-proof.json"),
+    JSON.stringify(
+      {
+        sessionProof,
+        requests: modelBodies.map((body) => ({
+          previousTrigger: /stream-smoke-[a-f0-9-]+/.test(body),
+          continuation: body.includes("continue-session"),
+          priorAssistantReply: body.includes("local-model-answer-final"),
+        })),
+      },
+      null,
+      2,
+    ),
+  );
   socket?.terminate();
   await new Promise<void>((resolve) => modelServer.close(() => resolve()));
   for (const child of children.reverse()) {

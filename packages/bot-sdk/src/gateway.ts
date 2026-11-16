@@ -7,6 +7,7 @@ import {
   type InteractionCreatePayload,
   type Message,
   type TypingIndicatorPayload,
+  type TypingStopPayload,
 } from "@tescord/types";
 import { BotClientError, normalizeServerUrl } from "./errors.js";
 import * as parse from "./validation.js";
@@ -19,6 +20,7 @@ export interface BotGatewayEvents {
   INTERACTION_CREATE: InteractionCreatePayload;
   DM_CHANNEL_CREATE: Channel;
   TYPING_START: TypingIndicatorPayload;
+  TYPING_STOP: TypingStopPayload;
   CLIENT_DISCONNECT: { code: number; fatal: boolean };
   CLIENT_ERROR: {
     code: "PROTOCOL_ERROR" | "TRANSPORT_ERROR" | "HANDLER_ERROR";
@@ -394,6 +396,19 @@ export class BotGateway {
         this.emit("DM_CHANNEL_CREATE", value);
         break;
       }
+      case "TYPING_STOP": {
+        const value = parse.record(packet.d);
+        const channelId = parse.id(value.channelId);
+        parse.id(value.userId);
+        if (
+          typeof value.timestamp !== "number" ||
+          !Number.isFinite(value.timestamp)
+        )
+          throw new BotClientError("PROTOCOL_ERROR");
+        if (this.#config.channels.some((channel) => channel.id === channelId))
+          this.emit("TYPING_STOP", value as unknown as TypingStopPayload);
+        break;
+      }
       case "TYPING_START": {
         const value = parse.record(packet.d);
         const channelId = parse.id(value.channelId);
@@ -402,6 +417,7 @@ export class BotGateway {
         if (
           user.id !== userId ||
           typeof user.username !== "string" ||
+          (user.isBot !== undefined && typeof user.isBot !== "boolean") ||
           typeof value.timestamp !== "number" ||
           !Number.isFinite(value.timestamp)
         )

@@ -379,6 +379,14 @@ export class BotRestClient {
       signal,
     });
   }
+  async stopTyping(channelId: string, signal?: AbortSignal): Promise<void> {
+    assertId(channelId);
+    await this.request(`/api/channels/${channelId}/typing`, {
+      method: "DELETE",
+      retry: false,
+      signal,
+    });
+  }
   async createDm(userId: string, signal?: AbortSignal): Promise<Channel> {
     assertId(userId);
     const value = parse.channel(
@@ -414,9 +422,7 @@ export class BotRestClient {
   }
   async deferInteraction(
     interactionId: string,
-    optionsOrSignal?:
-      | AbortSignal
-      | { ephemeral?: boolean; flags?: number },
+    optionsOrSignal?: AbortSignal | { ephemeral?: boolean; flags?: number },
     maybeSignal?: AbortSignal,
   ): Promise<void> {
     assertId(interactionId);
@@ -472,9 +478,7 @@ export class BotRestClient {
     input: Extract<
       InteractionResponseDTO,
       {
-        type:
-          | "message"
-          | InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE;
+        type: "message" | InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE;
       }
     >,
     edit = false,

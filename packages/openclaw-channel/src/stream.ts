@@ -292,7 +292,7 @@ export class ReplyStream {
         this.schedule();
     }
   }
-  async finish(text?: string): Promise<void> {
+  async publishText(text?: string): Promise<void> {
     if (text !== undefined) {
       if (text.length > 128 * 1024) throw new ChannelError("REPLY_TOO_LARGE");
       this.#latest = text;
@@ -301,6 +301,9 @@ export class ReplyStream {
     this.#timer = undefined;
     if (this.#failure) throw this.#failure;
     await this.flush(true);
+  }
+  async finish(text?: string): Promise<void> {
+    await this.publishText(text);
     this.#finalized = true;
   }
   async sendAttachments(
