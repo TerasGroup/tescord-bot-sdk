@@ -1,0 +1,33 @@
+{
+  "execute": "{{name}} コマンドを実行",
+  "argument": "{{name}} の引数",
+  "arguments": "引数",
+  "failed": "コマンドの実行に失敗しました。再試行してください。",
+  "forbidden": "この操作を実行する権限がありません。",
+  "commands": {
+    "help": { "name": "ヘルプ", "description": "使用できるコマンドを表示" },
+    "status": { "name": "状態", "description": "現在のセッションの状態を表示" },
+    "new": {
+      "name": "新規セッション",
+      "description": "新しいセッションを開始"
+    },
+    "reset": {
+      "name": "リセット",
+      "description": "現在のセッションをリセット"
+    },
+    "stop": { "name": "停止", "description": "現在のタスクを停止" },
+    "model": {
+      "name": "モデル",
+      "description": "現在のモデルを確認または切り替え"
+    },
+    "models": { "name": "モデル一覧", "description": "使用できるモデルを表示" },
+    "compact": {
+      "name": "コンテキスト圧縮",
+      "description": "現在のセッションのコンテキストを圧縮"
+    },
+    "whoami": {
+      "name": "本人確認",
+      "description": "現在の呼び出し元の情報を表示"
+    }
+  }
+}

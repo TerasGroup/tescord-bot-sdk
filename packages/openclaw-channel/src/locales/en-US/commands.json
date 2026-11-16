@@ -1,0 +1,30 @@
+{
+  "execute": "Run the {{name}} command",
+  "argument": "{{name}} argument",
+  "arguments": "Arguments",
+  "failed": "The command failed. Try again.",
+  "forbidden": "You are not allowed to perform this action.",
+  "commands": {
+    "help": { "name": "help", "description": "List available commands" },
+    "status": {
+      "name": "status",
+      "description": "Show the current session status"
+    },
+    "new": { "name": "new", "description": "Start a new session" },
+    "reset": { "name": "reset", "description": "Reset the current session" },
+    "stop": { "name": "stop", "description": "Stop the current task" },
+    "model": {
+      "name": "model",
+      "description": "View or switch the current model"
+    },
+    "models": { "name": "models", "description": "List available models" },
+    "compact": {
+      "name": "compact",
+      "description": "Compact the current session context"
+    },
+    "whoami": {
+      "name": "whoami",
+      "description": "Show the current caller identity"
+    }
+  }
+}

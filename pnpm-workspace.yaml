@@ -1,0 +1,3 @@
+packages:
+  - packages/bot-sdk
+  - packages/openclaw-channel

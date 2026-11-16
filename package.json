@@ -1,0 +1,37 @@
+{
+  "name": "tescord-bot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.9.0",
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": "24.22.1",
+      "onFail": "download"
+    }
+  },
+  "scripts": {
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck && tsc -p tsconfig.check.json",
+    "verify:protocol": "tsx scripts/verify-protocol.ts",
+    "test": "vitest run",
+    "start:test-bot": "node --env-file-if-exists=.env.production.local node_modules/tsx/dist/cli.mjs --tsconfig tsconfig.base.json scripts/fixed-bot.ts",
+    "start:test-bot:background": "powershell -NoProfile -File scripts/start-fixed-bot.ps1",
+    "stop:test-bot": "node -e \"require('node:fs').writeFileSync('.runtime/fixed-bot/stop', '')\"",
+    "smoke:openclaw": "tsx scripts/smoke-openclaw.ts",
+    "smoke:backend": "tsx scripts/smoke-backend.ts"
+  },
+  "devDependencies": {
+    "@tescord/types": "file:vendor/tescord-types-0.3.7-209f6126b11ffcef.tgz",
+    "@types/node": "^24.0.0",
+    "@types/ws": "^8.18.0",
+    "openclaw": "2026.10.9",
+    "prettier": "^3.5.3",
+    "tsup": "^8.5.0",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2",
+    "vitest": "^5.0.5",
+    "ws": "^8.18.1"
+  }
+}

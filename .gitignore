@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.tools/
+test-results/
+coverage/
+.env
+.env.*.local
+*.log
+.runtime/

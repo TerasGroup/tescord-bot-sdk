@@ -1,0 +1,18 @@
+{
+  "execute": "執行 {{name}} 指令",
+  "argument": "{{name}} 參數",
+  "arguments": "參數",
+  "failed": "指令執行失敗，請重試。",
+  "forbidden": "你沒有權限執行此操作。",
+  "commands": {
+    "help": { "name": "幫助", "description": "查看可用指令" },
+    "status": { "name": "狀態", "description": "查看目前對話狀態" },
+    "new": { "name": "新增對話", "description": "開始新對話" },
+    "reset": { "name": "重設對話", "description": "重設目前對話" },
+    "stop": { "name": "停止", "description": "停止目前工作" },
+    "model": { "name": "模型", "description": "查看或切換目前模型" },
+    "models": { "name": "模型清單", "description": "查看可用模型" },
+    "compact": { "name": "壓縮上下文", "description": "壓縮目前對話上下文" },
+    "whoami": { "name": "身分", "description": "查看目前呼叫者身分" }
+  }
+}

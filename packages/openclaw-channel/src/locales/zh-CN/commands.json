@@ -1,0 +1,18 @@
+{
+  "execute": "执行 {{name}} 指令",
+  "argument": "{{name}} 参数",
+  "arguments": "参数",
+  "failed": "指令执行失败，请重试。",
+  "forbidden": "无权执行此操作。",
+  "commands": {
+    "help": { "name": "帮助", "description": "查看可用指令" },
+    "status": { "name": "状态", "description": "查看当前会话状态" },
+    "new": { "name": "新建会话", "description": "开始新会话" },
+    "reset": { "name": "重置会话", "description": "重置当前会话" },
+    "stop": { "name": "停止", "description": "停止当前任务" },
+    "model": { "name": "模型", "description": "查看或切换当前模型" },
+    "models": { "name": "模型列表", "description": "查看可用模型" },
+    "compact": { "name": "压缩上下文", "description": "压缩当前会话上下文" },
+    "whoami": { "name": "身份", "description": "查看当前调用者身份" }
+  }
+}

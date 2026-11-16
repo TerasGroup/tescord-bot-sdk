@@ -1,0 +1,106 @@
+{
+  "id": "nekord",
+  "name": "Nekord",
+  "version": "0.1.0",
+  "description": "Nekord",
+  "channels": ["nekord"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  },
+  "channelConfigs": {
+    "nekord": {
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "$defs": {
+          "account": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "enabled": { "type": "boolean" },
+              "serverUrl": { "type": "string" },
+              "botToken": {
+                "oneOf": [
+                  { "type": "string" },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["source", "provider", "id"],
+                    "properties": {
+                      "source": { "enum": ["env", "file", "exec"] },
+                      "provider": { "type": "string" },
+                      "id": { "type": "string" }
+                    }
+                  }
+                ]
+              },
+              "locale": {
+                "enum": ["zh-CN", "zh-TW", "zh-HK", "en-US", "ja-JP"]
+              },
+              "allowFrom": {
+                "type": "array",
+                "maxItems": 1000,
+                "items": { "type": "string" }
+              },
+              "publicCommands": {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "allowBotMessages": { "type": "boolean" },
+              "streamIntervalMs": {
+                "type": "integer",
+                "minimum": 500,
+                "maximum": 10000
+              },
+              "maxQueue": { "type": "integer", "minimum": 1, "maximum": 256 }
+            }
+          }
+        },
+        "properties": {
+          "enabled": { "type": "boolean" },
+          "serverUrl": { "type": "string" },
+          "botToken": {
+            "oneOf": [
+              { "type": "string" },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["source", "provider", "id"],
+                "properties": {
+                  "source": { "enum": ["env", "file", "exec"] },
+                  "provider": { "type": "string" },
+                  "id": { "type": "string" }
+                }
+              }
+            ]
+          },
+          "locale": { "enum": ["zh-CN", "zh-TW", "zh-HK", "en-US", "ja-JP"] },
+          "allowFrom": {
+            "type": "array",
+            "maxItems": 1000,
+            "items": { "type": "string" }
+          },
+          "publicCommands": { "type": "array", "items": { "type": "string" } },
+          "allowBotMessages": { "type": "boolean" },
+          "streamIntervalMs": {
+            "type": "integer",
+            "minimum": 500,
+            "maximum": 10000
+          },
+          "maxQueue": { "type": "integer", "minimum": 1, "maximum": 256 },
+          "accounts": {
+            "type": "object",
+            "propertyNames": { "pattern": "^[A-Za-z0-9_-]{1,64}$" },
+            "additionalProperties": { "$ref": "#/$defs/account" }
+          }
+        }
+      },
+      "uiHints": {
+        "botToken": { "sensitive": true },
+        "accounts.*.botToken": { "sensitive": true }
+      }
+    }
+  }
+}

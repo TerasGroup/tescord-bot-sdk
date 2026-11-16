@@ -1,0 +1,28 @@
+{
+  "package": "@tescord/types",
+  "version": "0.3.7",
+  "artifact": "tescord-types-0.3.7-209f6126b11ffcef.tgz",
+  "sha256": "209f6126b11ffcef5d47cc82988d564fa1243b2438e0a9fdbb5d561ad287a461",
+  "sourceDigest": "0c7c9f6407a951b8678da6a833f66e862049ddbafe270ab17591355ec2429b8b",
+  "sourceDigestAlgorithm": "sha256(sorted relative path + NUL + file bytes + NUL)",
+  "sourceDigestInputs": [
+    "package.json",
+    "src/bot.ts",
+    "src/calcVagueTime.test.ts",
+    "src/communication.ts",
+    "src/desktop-capture.ts",
+    "src/index.ts",
+    "src/interactions.ts",
+    "src/media-encryption.ts",
+    "src/media-frame.ts",
+    "src/message-encryption.test.ts",
+    "src/message-encryption.ts",
+    "src/proxy.ts",
+    "src/sticker.ts",
+    "src/video-embeds.ts",
+    "src/voice-routing.ts"
+  ],
+  "sourceBaseCommit": "de8ca02ef23692382397bf7a48222b9e1ba8de43",
+  "sourceBranch": "main",
+  "sourceDirty": true
+}
