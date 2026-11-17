@@ -23,7 +23,7 @@
     "smoke:backend": "tsx scripts/smoke-backend.ts"
   },
   "devDependencies": {
-    "@tescord/types": "file:vendor/tescord-types-0.3.7-fdb88d0388c2405d.tgz",
+    "@tescord/types": "file:vendor/tescord-types-0.3.7-3bd3756d4b66d397.tgz",
     "@types/node": "^24.0.0",
     "@types/ws": "^8.18.0",
     "openclaw": "2026.10.9",

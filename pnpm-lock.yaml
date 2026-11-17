@@ -9,8 +9,8 @@ importers:
   .:
     devDependencies:
       '@tescord/types':
-        specifier: file:vendor/tescord-types-0.3.7-fdb88d0388c2405d.tgz
-        version: file:vendor/tescord-types-0.3.7-fdb88d0388c2405d.tgz
+        specifier: file:vendor/tescord-types-0.3.7-3bd3756d4b66d397.tgz
+        version: file:vendor/tescord-types-0.3.7-3bd3756d4b66d397.tgz
       '@types/node':
         specifier: ^24.0.0
         version: 24.19.2
@@ -45,8 +45,8 @@ importers:
   packages/bot-sdk:
     devDependencies:
       '@tescord/types':
-        specifier: file:../../vendor/tescord-types-0.3.7-fdb88d0388c2405d.tgz
-        version: file:vendor/tescord-types-0.3.7-fdb88d0388c2405d.tgz
+        specifier: file:../../vendor/tescord-types-0.3.7-3bd3756d4b66d397.tgz
+        version: file:vendor/tescord-types-0.3.7-3bd3756d4b66d397.tgz
 
   packages/openclaw-channel:
     dependencies:
@@ -58,8 +58,8 @@ importers:
         specifier: workspace:*
         version: link:../bot-sdk
       '@tescord/types':
-        specifier: file:../../vendor/tescord-types-0.3.7-fdb88d0388c2405d.tgz
-        version: file:vendor/tescord-types-0.3.7-fdb88d0388c2405d.tgz
+        specifier: file:../../vendor/tescord-types-0.3.7-3bd3756d4b66d397.tgz
+        version: file:vendor/tescord-types-0.3.7-3bd3756d4b66d397.tgz
 
 packages:
 
@@ -1030,8 +1030,8 @@ packages:
   '@stablelib/base64@1.0.1':
     resolution: {integrity: sha512-1bnPQqSxSuc3Ii6MhBysoWCg58j97aUjuCSZrGSmDxNqtytIi0k8utUenAwTZN4V5mXXYGsVUI9zeBqy+jBOSQ==}
 
-  '@tescord/types@file:vendor/tescord-types-0.3.7-fdb88d0388c2405d.tgz':
-    resolution: {integrity: sha512-DDh0f7zAPtIIDsYeKXfh2ZRouxmeNhWH46zdmeiWixsgzSkzQkP1KFov/+Z2F3rztiR+RzynR1eKNHobppiYJw==, tarball: file:vendor/tescord-types-0.3.7-fdb88d0388c2405d.tgz}
+  '@tescord/types@file:vendor/tescord-types-0.3.7-3bd3756d4b66d397.tgz':
+    resolution: {integrity: sha512-h5Op1Fy1XGYnrtigtcaSbh71eFHIcigWN1qSGtGT0kn8YR7mjewozI19VQuHVE+oQGioW6r/uSdKD6BC1ylbhQ==, tarball: file:vendor/tescord-types-0.3.7-3bd3756d4b66d397.tgz}
     version: 0.3.7
 
   '@tokenizer/inflate@0.4.1':
@@ -3614,7 +3614,7 @@ snapshots:
 
   '@stablelib/base64@1.0.1': {}
 
-  '@tescord/types@file:vendor/tescord-types-0.3.7-fdb88d0388c2405d.tgz': {}
+  '@tescord/types@file:vendor/tescord-types-0.3.7-3bd3756d4b66d397.tgz': {}
 
   '@tokenizer/inflate@0.4.1':
     dependencies:

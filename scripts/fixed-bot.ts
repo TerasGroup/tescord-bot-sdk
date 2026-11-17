@@ -11,6 +11,8 @@ import {
   InteractionType,
   MessageFlags,
   effectiveContextLimit,
+  extractChannelMentionIds,
+  formatChannelMention,
   isRecord,
   validateInteractionOptions,
   SUPPORTED_LOCALES,
@@ -206,11 +208,17 @@ async function messageTurn(
   );
   if (channel.type !== "DM" && !mentioned && !replied && !respondToAll) return;
   if (!(await ledger!.admit(`message:${message.id}`))) return;
-  const command = parseCommand(
-    stripBotMention(decoded.text, config.application.userId),
-  );
+  const stripped = stripBotMention(decoded.text, config.application.userId);
+  const command = parseCommand(stripped);
+  const mentionedChannels = extractChannelMentionIds(stripped)
+    .map((id) => config.channels.find((item) => item.id === id))
+    .filter((item): item is Channel => Boolean(item && item.type !== "DM"));
+  const channelMention =
+    !command && mentionedChannels[0]
+      ? formatChannelMention(mentionedChannels[0].id)
+      : undefined;
   const count = await context(channel, message.sequence ?? 0, signal);
-  const text = fixedReply(locale, command, count);
+  const text = fixedReply(locale, command, count, channelMention);
   const content = channel.isE2EE
     ? await identity!.encrypt(channel.id, text, undefined, undefined, signal)
     : text;

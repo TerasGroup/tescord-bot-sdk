@@ -335,23 +335,20 @@ export class BotGateway {
       }
       case "MESSAGE_CREATE": {
         const value = parse.message(packet.d);
-        if (
-          !this.#config.channels.some(
-            (channel) => channel.id === value.channelId,
-          )
-        )
-          return;
+        const target = this.#config.channels.find(
+          (channel) => channel.id === value.channelId,
+        );
+        if (!target || target.type === "VOICE") return;
         if (!this.seen(`message:${value.id}`))
           this.emit("MESSAGE_CREATE", value);
         break;
       }
       case "MESSAGE_UPDATE": {
         const value = parse.messageUpdate(packet.d);
-        if (
-          this.#config.channels.some(
-            (channel) => channel.id === value.channelId,
-          )
-        )
+        const target = this.#config.channels.find(
+          (channel) => channel.id === value.channelId,
+        );
+        if (target && target.type !== "VOICE")
           this.emit("MESSAGE_UPDATE", value);
         break;
       }

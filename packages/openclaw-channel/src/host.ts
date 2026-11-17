@@ -15,6 +15,7 @@ import type { ChannelMessageSendMediaContext } from "openclaw/plugin-sdk/channel
 import type { OpenClawConfig } from "openclaw/plugin-sdk/channel-core";
 import { ChannelError, type ChannelRuntime } from "./config.js";
 import type { AccountBridge, InboundTurn } from "./bridge.js";
+import { guildChannelsSummary } from "./inbound.js";
 
 const maximumMediaBytes = 50 * 1024 * 1024;
 export async function prepareOutboundMedia(
@@ -142,6 +143,29 @@ export async function dispatchHostTurn(
       }
     }
     turn.assertCurrent();
+    const channelDirectory = turn.channels?.length
+      ? guildChannelsSummary(turn.channels)
+      : [];
+    const extra: Record<string, unknown> = {
+      ...(turn.interaction
+        ? {
+            CommandTargetSessionKey: route.targetSessionKey,
+            CommandSource: "native",
+          }
+        : {}),
+      ...(channelDirectory.length
+        ? {
+            ChannelStructuredContext: [
+              {
+                label: "available_channels",
+                source: "nekord",
+                type: "channel_directory",
+                payload: channelDirectory,
+              },
+            ],
+          }
+        : {}),
+    };
     const ctx = buildChannelInboundEventContext({
       channel: "nekord",
       provider: "nekord",
@@ -178,7 +202,7 @@ export async function dispatchHostTurn(
           turn.channel.type === "DM" ? "direct" : "reply",
       },
       message: {
-        rawBody: turn.text,
+        rawBody: turn.rawText ?? turn.text,
         bodyForAgent: turn.text,
         commandBody: turn.command?.body,
         inboundHistory: turn.history.map((entry) => ({
@@ -199,12 +223,7 @@ export async function dispatchHostTurn(
           effectiveWasMentioned: true,
         },
       },
-      extra: turn.interaction
-        ? {
-            CommandTargetSessionKey: route.targetSessionKey,
-            CommandSource: "native",
-          }
-        : undefined,
+      extra: Object.keys(extra).length ? extra : undefined,
       media,
       channelIngress: "unsupported",
     });

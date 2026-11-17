@@ -1,6 +1,12 @@
 import { NekordBotClient } from "@nekord/bot-sdk";
 import { createAcceptedChannelDeliveryResult } from "openclaw/plugin-sdk/channel-inbound";
-import type { Channel, BotConfigUpdatePayload } from "@tescord/types";
+import {
+  CHANNEL_MENTION_TOKEN_REGEX_SOURCE,
+  replaceChannelNamesWithTokens,
+  resolveGuildChannelMention,
+  type Channel,
+  type BotConfigUpdatePayload,
+} from "@tescord/types";
 import { ChannelError, resolveAccount, type NekordPlugin } from "./config.js";
 import { accountDirectory } from "./state.js";
 import { PluginIdentity } from "./identity.js";
@@ -9,14 +15,50 @@ import { prepareOutboundMedia } from "./host.js";
 type SendContext = Parameters<
   NonNullable<NonNullable<NekordPlugin["outbound"]>["sendMedia"]>
 >[0];
+export type ParsedOutboundTarget =
+  | { kind: "user"; id: string }
+  | { kind: "channel"; id: string }
+  | { kind: "channel-query"; query: string };
+const EXACT_CHANNEL_MENTION_REGEX = new RegExp(
+  `^${CHANNEL_MENTION_TOKEN_REGEX_SOURCE}$`,
+);
+export function parseOutboundTarget(to: string): ParsedOutboundTarget {
+  const trimmed = to.trim();
+  const explicit = /^(?:nekord:)?(channel|user):([A-Za-z0-9_-]{1,160})$/.exec(
+    trimmed,
+  );
+  if (explicit) {
+    return {
+      kind: explicit[1] as "channel" | "user",
+      id: explicit[2]!,
+    };
+  }
+  const stripped = trimmed.replace(/^nekord:/, "").replace(/^channel:/, "");
+  const mention = EXACT_CHANNEL_MENTION_REGEX.exec(stripped);
+  if (mention?.[1]) return { kind: "channel", id: mention[1] };
+  if (/^#[^\r\n]+$/.test(stripped) && stripped.length > 1) {
+    return { kind: "channel-query", query: stripped };
+  }
+  throw new ChannelError("INVALID_MESSAGE_TARGET");
+}
+export function resolveWritableChannel(
+  channels: readonly Channel[],
+  target: Exclude<ParsedOutboundTarget, { kind: "user" }>,
+): Channel {
+  const selected =
+    target.kind === "channel"
+      ? channels.find((item) => item.id === target.id)
+      : resolveGuildChannelMention(channels, target.query);
+  if (!selected || selected.type === "VOICE") {
+    throw new ChannelError("CHANNEL_UNAVAILABLE");
+  }
+  return selected;
+}
 export async function sendRest(ctx: SendContext, stateRoot: string) {
   const account = resolveAccount(ctx.cfg, ctx.accountId);
   if (!account.enabled || !account.botToken || !account.configured)
     throw new ChannelError("BOT_ACCOUNT_UNCONFIGURED");
-  const match = /^(?:nekord:)?(channel|user):([A-Za-z0-9_-]{1,160})$/.exec(
-    ctx.to,
-  );
-  if (!match) throw new ChannelError("INVALID_MESSAGE_TARGET");
+  const target = parseOutboundTarget(ctx.to);
   const client = new NekordBotClient({
     serverUrl: account.serverUrl,
     token: account.botToken,
@@ -41,19 +83,18 @@ export async function sendRest(ctx: SendContext, stateRoot: string) {
     )
       throw new ChannelError("BOT_DEVICE_REVOKED");
     let channel: Channel;
-    if (match[1] === "user") {
-      channel = await client.createDm(match[2]!, signal);
+    if (target.kind === "user") {
+      channel = await client.createDm(target.id, signal);
       config = await client.getConfig(signal);
     } else {
-      const selected = config.channels.find((item) => item.id === match[2]);
-      if (!selected) throw new ChannelError("CHANNEL_UNAVAILABLE");
-      channel = selected;
+      channel = resolveWritableChannel(config.channels, target);
     }
     const assertCurrent = () => {
       signal.throwIfAborted();
       ctx.assertDirectAdapterHandoff?.();
       const current = config.channels.find((item) => item.id === channel.id);
-      if (!current) throw new ChannelError("CHANNEL_UNAVAILABLE");
+      if (!current || current.type === "VOICE")
+        throw new ChannelError("CHANNEL_UNAVAILABLE");
       return current;
     };
     assertCurrent();
@@ -69,7 +110,9 @@ export async function sendRest(ctx: SendContext, stateRoot: string) {
           ),
         ]
       : [];
-    const parts = splitMessage(ctx.text);
+    const parts = splitMessage(
+      replaceChannelNamesWithTokens(ctx.text, config.channels),
+    );
     if (!parts.length && files.length) parts.push("");
     const ids: string[] = [];
     for (let index = 0; index < parts.length; index++) {

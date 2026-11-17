@@ -23,6 +23,6 @@
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
-    "@tescord/types": "file:../../vendor/tescord-types-0.3.7-fdb88d0388c2405d.tgz"
+    "@tescord/types": "file:../../vendor/tescord-types-0.3.7-3bd3756d4b66d397.tgz"
   }
 }

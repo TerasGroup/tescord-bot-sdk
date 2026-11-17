@@ -1,16 +1,19 @@
 {
   "package": "@tescord/types",
   "version": "0.3.7",
-  "artifact": "tescord-types-0.3.7-fdb88d0388c2405d.tgz",
-  "sha256": "fdb88d0388c2405d75330123cf6e52967a3695e2799730b88d05fd719f701623",
-  "sourceDigest": "5da78ae073be66eff28c03d884e95790705e8c19ac395dae97cd25a078363e44",
+  "artifact": "tescord-types-0.3.7-3bd3756d4b66d397.tgz",
+  "sha256": "3bd3756d4b66d397a1f5ea23285ca9b226e35b9f21ebebbcdc3fb6bcfb348e9a",
+  "sourceDigest": "fd957825860e2f17483ac4d6213f07a214126987b61a320ddd0a42e63259ecf8",
   "sourceDigestAlgorithm": "sha256(sorted relative path + NUL + file bytes + NUL)",
   "sourceDigestInputs": [
     "package.json",
+    "src/bot.test.ts",
     "src/bot.ts",
     "src/calcVagueTime.test.ts",
     "src/communication.ts",
     "src/desktop-capture.ts",
+    "src/history-recovery.test.ts",
+    "src/history-recovery.ts",
     "src/index.ts",
     "src/interactions.ts",
     "src/media-encryption.ts",
@@ -22,7 +25,7 @@
     "src/video-embeds.ts",
     "src/voice-routing.ts"
   ],
-  "sourceBaseCommit": "82ae777fbf302afb53a8dddcebeecc8ad62589f7",
+  "sourceBaseCommit": "6e3c63c5a75efa9260aeb8c2c3ee8c7195dfbd3b",
   "sourceBranch": "main",
-  "sourceDirty": true
+  "sourceDirty": false
 }

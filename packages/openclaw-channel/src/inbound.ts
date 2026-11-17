@@ -1,5 +1,7 @@
 import {
   effectiveContextLimit,
+  formatChannelMention,
+  formatChannelMentionsForReader,
   type BotApplication,
   type Channel,
   type Message,
@@ -48,6 +50,33 @@ export function stripBotMention(text: string, userId: string): string {
     .join("")
     .trim();
 }
+export function formatInboundTextForAgent(
+  text: string,
+  channels: readonly Channel[],
+): string {
+  return formatChannelMentionsForReader(text, channels);
+}
+export interface ChannelDirectoryEntry {
+  id: string;
+  name: string;
+  type: Channel["type"];
+  mention: string;
+  topic?: string;
+}
+export function guildChannelsSummary(
+  channels: readonly Channel[],
+): ChannelDirectoryEntry[] {
+  return [...channels]
+    .filter((item) => item.type === "TEXT" || item.type === "VOICE")
+    .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
+    .map((item) => ({
+      id: item.id,
+      name: item.name,
+      type: item.type,
+      mention: formatChannelMention(item.id),
+      ...(item.topic ? { topic: item.topic } : {}),
+    }));
+}
 export async function readHistory(
   client: NekordBotClient,
   identity: PluginIdentity,
@@ -55,6 +84,7 @@ export async function readHistory(
   channel: Channel,
   before: number,
   signal?: AbortSignal,
+  channels: readonly Channel[] = [channel],
 ): Promise<HistoryMessage[]> {
   const limit = effectiveContextLimit(application, channel.id);
   if (limit === 0 || !Number.isSafeInteger(before) || before <= 0) return [];
@@ -78,7 +108,7 @@ export async function readHistory(
         id: message.id,
         senderId: message.authorId,
         senderName: message.author.displayName || message.author.username,
-        text: decoded.text,
+        text: formatChannelMentionsForReader(decoded.text, channels),
         timestamp: Date.parse(message.createdAt),
       });
     } catch {

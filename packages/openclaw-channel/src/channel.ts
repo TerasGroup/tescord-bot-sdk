@@ -19,7 +19,11 @@ import {
   collectRuntimeConfigAssignments,
 } from "./secret-contract-api.js";
 import { channelConfigSchema } from "./schema.js";
-import { sendRest } from "./outbound.js";
+import {
+  parseOutboundTarget,
+  resolveWritableChannel,
+  sendRest,
+} from "./outbound.js";
 
 export const holder: RuntimeHolder & { commands?: PluginCommandRuntime } = {};
 const active = new Map<string, AccountBridge>();
@@ -81,9 +85,10 @@ export function resolveTarget(to: string): {
   kind: "channel" | "user";
   id: string;
 } {
-  const match = /^(?:nekord:)?(channel|user):([A-Za-z0-9_-]{1,160})$/.exec(to);
-  if (!match) throw new ChannelError("INVALID_MESSAGE_TARGET");
-  return { kind: match[1] as "channel" | "user", id: match[2]! };
+  const parsed = parseOutboundTarget(to);
+  if (parsed.kind === "channel-query")
+    throw new ChannelError("INVALID_MESSAGE_TARGET");
+  return parsed;
 }
 export const nekordPlugin: NekordPlugin = {
   id: "nekord",
@@ -134,16 +139,24 @@ export const nekordPlugin: NekordPlugin = {
   messaging: {
     normalizeTarget: (target) => {
       try {
-        const parsed = resolveTarget(target);
-        return `${parsed.kind}:${parsed.id}`;
+        const parsed = parseOutboundTarget(target);
+        return parsed.kind === "channel-query"
+          ? parsed.query
+          : `${parsed.kind}:${parsed.id}`;
       } catch {
         return undefined;
       }
     },
     targetResolver: {
-      looksLikeId: (target) =>
-        /^(?:nekord:)?(?:user|channel):[A-Za-z0-9_-]+$/.test(target),
-      hint: "channel:<id> / user:<id>",
+      looksLikeId: (target) => {
+        try {
+          parseOutboundTarget(target);
+          return true;
+        } catch {
+          return false;
+        }
+      },
+      hint: "channel:<id> / #channel / user:<id>",
     },
   },
   outbound: {
@@ -165,7 +178,7 @@ async function send(
     return sendRest(ctx, holder.runtime.state.resolveStateDir());
   }
   const bridge = connection(ctx.accountId);
-  const target = resolveTarget(ctx.to);
+  const target = parseOutboundTarget(ctx.to);
   const scheduler = bridge.options.scheduler.scope();
   const signal = AbortSignal.any([
     bridge.signal,
@@ -178,7 +191,8 @@ async function send(
     const channel =
       target.kind === "user"
         ? await bridge.client.createDm(target.id, signal)
-        : bridge.assertCurrent(target.id);
+        : resolveWritableChannel(bridge.config.channels, target);
+    if (channel.type === "VOICE") throw new ChannelError("CHANNEL_UNAVAILABLE");
     if (target.kind === "user") {
       const config = await bridge.refreshConfig(signal);
       if (!config.channels.some((item) => item.id === channel.id))
@@ -194,6 +208,7 @@ async function send(
       client: bridge.client,
       identity: bridge.identity,
       channel,
+      channels: bridge.config.channels,
       scheduler,
       signal,
       intervalMs: bridge.options.account.streamIntervalMs,

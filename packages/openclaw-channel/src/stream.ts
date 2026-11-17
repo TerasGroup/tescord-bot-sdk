@@ -1,7 +1,8 @@
-import type {
-  Channel,
-  InteractionCreatePayload,
-  CreateMessageAttachmentDTO,
+import {
+  replaceChannelNamesWithTokens,
+  type Channel,
+  type InteractionCreatePayload,
+  type CreateMessageAttachmentDTO,
 } from "@tescord/types";
 import { BotClientError, type NekordBotClient } from "@nekord/bot-sdk";
 import { ChannelError, type AccountScheduler } from "./config.js";
@@ -46,6 +47,7 @@ export interface StreamOptions {
   client: NekordBotClient;
   identity: PluginIdentity;
   channel: Channel;
+  channels?: readonly Channel[];
   scheduler: AccountScheduler;
   signal: AbortSignal;
   intervalMs: number;
@@ -263,6 +265,12 @@ export class ReplyStream {
       }
     }
   }
+  private formattedLatest(): string {
+    const channels = this.#options.channels;
+    return channels?.length
+      ? replaceChannelNamesWithTokens(this.#latest, channels)
+      : this.#latest;
+  }
   private async flush(final: boolean): Promise<void> {
     if (this.#busy) {
       await this.#busy;
@@ -271,8 +279,9 @@ export class ReplyStream {
     }
     const operation = (async () => {
       this.check();
-      if (!this.#latest.trim()) return;
-      const parts = splitMessage(this.#latest);
+      const formatted = this.formattedLatest();
+      if (!formatted.trim()) return;
+      const parts = splitMessage(formatted);
       if (this.#options.interaction && parts.length > 1 && final)
         throw new ChannelError("MESSAGE_TOO_LARGE");
       for (let index = 0; index < (final ? parts.length : 1); index++)
@@ -287,7 +296,7 @@ export class ReplyStream {
         !final &&
         (this.#options.interaction?.ephemeral
           ? this.#privateText
-          : this.#parts[0]?.text) !== splitMessage(this.#latest)[0]
+          : this.#parts[0]?.text) !== splitMessage(this.formattedLatest())[0]
       )
         this.schedule();
     }

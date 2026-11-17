@@ -20,6 +20,7 @@ import { PluginIdentity } from "./identity.js";
 import { DeliveryLedger } from "./ledger.js";
 import { NativeCommandCatalog, type NativeCommandTurn } from "./commands.js";
 import {
+  formatInboundTextForAgent,
   readHistory,
   shouldTrigger,
   stripBotMention,
@@ -29,11 +30,13 @@ import { ReplyStream } from "./stream.js";
 
 export interface InboundTurn {
   channel: Channel;
+  channels?: Channel[];
   senderId: string;
   senderName: string;
   senderIsBot: boolean;
   messageId: string;
   timestamp: number;
+  rawText?: string;
   text: string;
   history: HistoryMessage[];
   message?: Message;
@@ -264,6 +267,7 @@ export class AccountBridge {
     scheduler: AccountScheduler,
   ): Promise<void> {
     const channel = this.assertCurrent(message.channelId);
+    if (channel.type === "VOICE") return;
     const application = this.config.application;
     if (
       message.authorId === application.userId ||
@@ -280,6 +284,7 @@ export class AccountBridge {
     )
       return;
     if (!(await this.#ledger!.admit(`message:${message.id}`))) return;
+    const channels = this.config.channels;
     const history = await readHistory(
       this.client,
       this.identity,
@@ -287,18 +292,21 @@ export class AccountBridge {
       channel,
       message.sequence ?? 0,
       signal,
+      channels,
     );
+    const rawText =
+      stripBotMention(decoded.text, application.userId) || decoded.text.trim();
     await this.dispatch(
       {
         channel,
+        channels,
         senderId: message.authorId,
         senderName: message.author.displayName || message.author.username,
         senderIsBot: Boolean(message.author.isBot),
         messageId: message.id,
         timestamp: Date.parse(message.createdAt),
-        text:
-          stripBotMention(decoded.text, application.userId) ||
-          decoded.text.trim(),
+        rawText,
+        text: formatInboundTextForAgent(rawText, channels),
         history,
         message,
       },
@@ -311,6 +319,7 @@ export class AccountBridge {
   ): Promise<void> {
     try {
       const channel = this.assertCurrent(interaction.channelId);
+      if (channel.type === "VOICE") return;
       if (!senderAllowed(this.options.account, interaction.callerId)) return;
       if (Boolean(channel.isE2EE) !== interaction.isEncrypted)
         throw new ChannelError("INTERACTION_ENCRYPTION_REQUIRED");
@@ -320,17 +329,24 @@ export class AccountBridge {
           interaction,
           signal,
         );
-        const command = this.#catalog!.prepare(interaction.command, options);
+        const channels = this.config.channels;
+        const command = this.#catalog!.prepare(
+          interaction.command,
+          options,
+          channels,
+        );
         if (!(await this.#ledger!.admit(`interaction:${interaction.id}`)))
           return;
         await this.dispatch(
           {
             channel,
+            channels,
             senderId: interaction.callerId,
             senderName: interaction.callerId,
             senderIsBot: false,
             messageId: interaction.id,
             timestamp: Date.now(),
+            rawText: command.body,
             text: command.body,
             history: [],
             interaction,
@@ -396,6 +412,7 @@ export class AccountBridge {
               client: this.client,
               identity: this.identity,
               channel: turn.channel,
+              channels: turn.channels ?? this.#config?.channels,
               scheduler: scheduler.scope(),
               signal,
               intervalMs: this.options.account.streamIntervalMs,

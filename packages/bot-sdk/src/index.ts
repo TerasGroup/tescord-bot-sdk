@@ -54,6 +54,13 @@ export { BotClientError, normalizeServerUrl } from "./errors.js";
 export type { BotClientErrorCode } from "./errors.js";
 export type { MessageUpdate } from "./validation.js";
 export {
+  CHANNEL_MENTION_TOKEN_REGEX_SOURCE,
+  USER_MENTION_TOKEN_REGEX_SOURCE,
+  extractChannelMentionIds,
+  formatChannelMention,
+  formatChannelMentionsForReader,
+  replaceChannelNamesWithTokens,
+  resolveGuildChannelMention,
   ErrorCode,
   InteractionType,
   InteractionResponseType,
@@ -74,6 +81,7 @@ export type {
   BotReadyPayload,
   ButtonComponent,
   Channel,
+  ChannelMentionReference,
   CreateMessageAttachmentDTO,
   CreateMessageDTO,
   EditMessageDTO,

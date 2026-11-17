@@ -25,7 +25,9 @@ export type RpsObject = "rock" | "paper" | "scissors";
 
 interface Copy {
   descriptions: Record<CommandName, string>;
-  replies: Record<CommandName | "contextEmpty" | "unknown", string>;
+  replies: Record<CommandName | "contextEmpty" | "unknown", string> & {
+    channelMention: (mention: string) => string;
+  };
   gettingStarted: {
     testDesc: string;
     testReply: string;
@@ -72,6 +74,7 @@ export const copy: Record<SupportedLocale, Copy> = {
       context: "上下文读取成功。",
       contextEmpty: "当前没有可读取的上下文。",
       unknown: "消息已收到。输入 /help 查看测试指令。",
+      channelMention: (mention) => `已识别频道引用：${mention}`,
     },
     gettingStarted: {
       testDesc: "基础测试指令",
@@ -127,6 +130,7 @@ export const copy: Record<SupportedLocale, Copy> = {
       context: "上下文讀取成功。",
       contextEmpty: "目前沒有可讀取的上下文。",
       unknown: "訊息已收到。輸入 /help 查看測試指令。",
+      channelMention: (mention) => `已識別頻道引用：${mention}`,
     },
     gettingStarted: {
       testDesc: "基礎測試指令",
@@ -182,6 +186,7 @@ export const copy: Record<SupportedLocale, Copy> = {
       context: "上下文讀取成功。",
       contextEmpty: "目前沒有可讀取的上下文。",
       unknown: "已收到訊息。輸入 /help 查看測試指令。",
+      channelMention: (mention) => `已識別頻道引用：${mention}`,
     },
     gettingStarted: {
       testDesc: "基礎測試指令",
@@ -237,6 +242,7 @@ export const copy: Record<SupportedLocale, Copy> = {
       context: "Context read successfully.",
       contextEmpty: "There is no readable context yet.",
       unknown: "Message received. Use /help to see test commands.",
+      channelMention: (mention) => `Referenced channel: ${mention}`,
     },
     gettingStarted: {
       testDesc: "Basic command",
@@ -294,6 +300,7 @@ export const copy: Record<SupportedLocale, Copy> = {
       contextEmpty: "読み取れるコンテキストがまだありません。",
       unknown:
         "メッセージを受信しました。/help でテストコマンドを確認できます。",
+      channelMention: (mention) => `参照チャンネル：${mention}`,
     },
     gettingStarted: {
       testDesc: "基本テストコマンド",
@@ -303,8 +310,7 @@ export const copy: Record<SupportedLocale, Copy> = {
       challengeDesc: "じゃんけん対戦を申し込む",
       challengeOptionDesc: "出す手を選択してください",
       challengeOptionName: "object",
-      challengePrompt: (caller) =>
-        `${caller} がじゃんけん勝負を挑んでいます！`,
+      challengePrompt: (caller) => `${caller} がじゃんけん勝負を挑んでいます！`,
       acceptButtonLabel: "勝負を受ける",
       selectPrompt: "出す手を選んでください：",
       selectPlaceholder: "選択してください",
@@ -553,7 +559,11 @@ export function fixedReply(
   locale: SupportedLocale,
   command: CommandName | undefined,
   historyCount: number,
+  channelMention?: string,
 ): string {
+  if (!command && channelMention) {
+    return copy[locale].replies.channelMention(channelMention);
+  }
   return copy[locale].replies[
     command === "context" && historyCount === 0
       ? "contextEmpty"

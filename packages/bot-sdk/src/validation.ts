@@ -106,7 +106,7 @@ export function channel(value: unknown): Channel {
     !isRecord(value) ||
     !text(value.id) ||
     typeof value.name !== "string" ||
-    !["TEXT", "DM"].includes(String(value.type)) ||
+    !["TEXT", "VOICE", "DM"].includes(String(value.type)) ||
     !integer(value.position) ||
     !text(value.createdAt) ||
     (value.guildId !== undefined &&
@@ -132,8 +132,8 @@ export function channel(value: unknown): Channel {
 export function application(value: unknown): BotApplication {
   if (
     !isRecord(value) ||
-    !["id", "userId", "guildId", "managedRoleId", "createdAt"].every(
-      (key) => text(value[key]),
+    !["id", "userId", "guildId", "managedRoleId", "createdAt"].every((key) =>
+      text(value[key]),
     ) ||
     (value.ownerId !== undefined &&
       value.ownerId !== null &&
@@ -256,9 +256,7 @@ export function interaction(
   )
     return invalid();
   const type =
-    value.type === undefined
-      ? InteractionType.APPLICATION_COMMAND
-      : value.type;
+    value.type === undefined ? InteractionType.APPLICATION_COMMAND : value.type;
   if (
     type !== InteractionType.APPLICATION_COMMAND &&
     type !== InteractionType.MESSAGE_COMPONENT &&

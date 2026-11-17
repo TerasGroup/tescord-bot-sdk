@@ -15,10 +15,12 @@ import type {
 } from "openclaw/plugin-sdk/plugin-command-runtime";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/channel-core";
 import {
+  formatChannelMentionsForReader,
   validateBotCommandDefinition,
   validateInteractionOptions,
   type BotCommand,
   type BotCommandDefinition,
+  type Channel,
   type InteractionOptions,
 } from "@tescord/types";
 import type { NekordBotClient } from "@nekord/bot-sdk";
@@ -131,7 +133,11 @@ export class NativeCommandCatalog {
       throw new ChannelError("COMMAND_CATALOG_INVALID");
     this.#registered = map;
   }
-  prepare(command: BotCommand, value: unknown): NativeCommandTurn {
+  prepare(
+    command: BotCommand,
+    value: unknown,
+    channels: readonly Channel[] = [],
+  ): NativeCommandTurn {
     const selected = this.#registered.get(command.id);
     if (!selected || selected.definition.name !== command.name)
       throw new ChannelError("COMMAND_UNAVAILABLE");
@@ -143,6 +149,17 @@ export class NativeCommandCatalog {
     const args: CommandArgs = selected.spec.args?.length
       ? { values: options }
       : { raw: String(options.arguments ?? "") };
+    const formatAgentOptionValue = (name: string, val: unknown): string => {
+      if (val === undefined) return "";
+      const str = String(val);
+      const optionDef = selected.definition.options.find(
+        (opt) => opt.name === name,
+      );
+      if (optionDef?.type === "channel") {
+        return formatChannelMentionsForReader(`<#${str}>`, channels);
+      }
+      return str;
+    };
     const raw = builtin
       ? (serializeCommandArgs(builtin, args) ?? "")
       : (selected.spec.args
@@ -164,10 +181,22 @@ export class NativeCommandCatalog {
         decision,
       };
     }
+    const agentRaw = builtin
+      ? formatChannelMentionsForReader(raw, channels)
+      : (selected.spec.args
+          ?.map((argument) =>
+            formatAgentOptionValue(argument.name, options[argument.name]),
+          )
+          .filter(Boolean)
+          .join(" ") ??
+        formatChannelMentionsForReader(args.raw ?? "", channels));
     return {
       body: builtin
-        ? buildCommandTextFromArgs(builtin, args)
-        : `/${selected.spec.name}${raw ? ` ${raw}` : ""}`,
+        ? formatChannelMentionsForReader(
+            buildCommandTextFromArgs(builtin, args),
+            channels,
+          )
+        : `/${selected.spec.name}${agentRaw ? ` ${agentRaw}` : ""}`,
       args,
       decision: { kind: "non-plugin" },
     };
