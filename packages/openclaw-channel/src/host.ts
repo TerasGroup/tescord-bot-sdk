@@ -10,6 +10,7 @@ import { PLUGIN_COMMAND_DISPATCH } from "openclaw/plugin-sdk/plugin-command-runt
 import {
   getAgentScopedMediaLocalRoots,
   resolveOutboundAttachmentFromUrl,
+  saveMediaBuffer,
 } from "openclaw/plugin-sdk/media-runtime";
 import type { ChannelMessageSendMediaContext } from "openclaw/plugin-sdk/channel-outbound";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/channel-core";
@@ -120,27 +121,92 @@ export async function dispatchHostTurn(
   const accountId = bridge.options.account.accountId;
   const route = sessionRoute(runtime, cfg, accountId, turn);
   const media: InboundMediaFacts[] = [];
-  const mediaRoot = path.join(bridge.directory, "inbound-media");
-  let staging: string | undefined;
+  const stagedPaths: string[] = [];
   const stream = turn.stream();
   let replyText = "";
   try {
-    if (turn.message?.attachments?.length) {
-      await fs.mkdir(mediaRoot, { recursive: true, mode: 0o700 });
-      staging = await fs.mkdtemp(path.join(mediaRoot, "turn-"));
-      for (const file of turn.message.attachments) {
-        turn.assertCurrent();
-        const bytes = await bridge.client.downloadAttachment(
-          turn.channel.id,
-          file,
-          turn.signal,
+    const historyImages = turn.history.flatMap(({ imageMessage }) =>
+      imageMessage ? [imageMessage] : [],
+    );
+    const hasCurrentImage = turn.message?.attachments?.some((file) =>
+      /^image\/(?:png|jpeg|webp)$/i.test(file.mimeType),
+    );
+    const images =
+      hasCurrentImage || turn.imageReply || historyImages.length
+        ? await bridge.client.getImageContext(
+            {
+              channelId: turn.channel.id,
+              current: turn.message,
+              reply: turn.imageReply,
+              history: historyImages,
+            },
+            turn.signal,
+          )
+        : [];
+    const imageSources = [];
+    const stage = async (
+      bytes: Uint8Array,
+      mimeType: string,
+      maximum: number,
+      fileName?: string,
+    ) => {
+      turn.assertCurrent();
+      const staged = await saveMediaBuffer(
+        Buffer.from(bytes),
+        mimeType,
+        "inbound",
+        maximum,
+        fileName,
+        undefined,
+        {
+          assertCommitAllowed: turn.assertCurrent,
+        },
+      );
+      stagedPaths.push(staged.path);
+      return staged;
+    };
+    for (const image of images) {
+      try {
+        const staged = await stage(
+          image.bytes,
+          image.mimeType,
+          10 * 1024 * 1024,
         );
-        const extension =
-          path.extname(file.fileName).match(/^\.[a-zA-Z0-9]{1,10}$/)?.[0] ?? "";
-        const target = path.join(staging, `${crypto.randomUUID()}${extension}`);
-        await fs.writeFile(target, bytes, { flag: "wx", mode: 0o600 });
-        media.push({ path: target, contentType: file.mimeType });
+        if (staged.contentType !== image.mimeType) continue;
+        media.push({
+          path: staged.path,
+          contentType: image.mimeType,
+          kind: "image",
+          messageId: image.messageId,
+        });
+        imageSources.push({
+          image: imageSources.length + 1,
+          source: image.source,
+          messageId: image.messageId,
+        });
+      } catch {
+        turn.assertCurrent();
       }
+    }
+    for (const file of turn.message?.attachments ?? []) {
+      if (file.mimeType.toLowerCase().startsWith("image/")) continue;
+      turn.assertCurrent();
+      const bytes = await bridge.client.downloadAttachment(
+        turn.channel.id,
+        file,
+        turn.signal,
+      );
+      const staged = await stage(
+        bytes,
+        file.mimeType,
+        maximumMediaBytes,
+        file.fileName,
+      );
+      media.push({
+        path: staged.path,
+        contentType: file.mimeType,
+        messageId: turn.message?.id,
+      });
     }
     turn.assertCurrent();
     const channelDirectory = turn.channels?.length
@@ -153,15 +219,29 @@ export async function dispatchHostTurn(
             CommandSource: "native",
           }
         : {}),
-      ...(channelDirectory.length
+      ...(channelDirectory.length || imageSources.length
         ? {
             ChannelStructuredContext: [
-              {
-                label: "available_channels",
-                source: "nekord",
-                type: "channel_directory",
-                payload: channelDirectory,
-              },
+              ...(channelDirectory.length
+                ? [
+                    {
+                      label: "available_channels",
+                      source: "nekord",
+                      type: "channel_directory",
+                      payload: channelDirectory,
+                    },
+                  ]
+                : []),
+              ...(imageSources.length
+                ? [
+                    {
+                      label: "image_sources",
+                      source: "nekord",
+                      type: "image_sources",
+                      payload: imageSources,
+                    },
+                  ]
+                : []),
             ],
           }
         : {}),
@@ -339,7 +419,6 @@ export async function dispatchHostTurn(
     });
     await stream.finish();
   } finally {
-    if (staging && path.dirname(staging) === mediaRoot)
-      await fs.rm(staging, { recursive: true, force: true });
+    await Promise.allSettled(stagedPaths.map((file) => fs.unlink(file)));
   }
 }

@@ -22,6 +22,7 @@ import { NativeCommandCatalog, type NativeCommandTurn } from "./commands.js";
 import {
   formatInboundTextForAgent,
   readHistory,
+  readReplyImages,
   shouldTrigger,
   stripBotMention,
   type HistoryMessage,
@@ -40,6 +41,7 @@ export interface InboundTurn {
   text: string;
   history: HistoryMessage[];
   message?: Message;
+  imageReply?: Awaited<ReturnType<typeof readReplyImages>>;
   interaction?: InteractionCreatePayload;
   command?: NativeCommandTurn;
   signal: AbortSignal;
@@ -83,6 +85,7 @@ export class AccountBridge {
   #catalog?: NativeCommandCatalog;
   #queues = new Map<string, Promise<void>>();
   #jobs = new Set<Job>();
+  #inboundTurns = new Map<string, InboundTurn>();
   #subscriptions: (() => void)[] = [];
   #stop = new AbortController();
   #ready = false;
@@ -107,6 +110,12 @@ export class AccountBridge {
   }
   get pending(): number {
     return this.#jobs.size;
+  }
+  getInboundTurn(
+    channelId: string,
+    messageId: string,
+  ): InboundTurn | undefined {
+    return this.#inboundTurns.get(`${channelId}:${messageId}`);
   }
   async refreshConfig(signal?: AbortSignal): Promise<BotConfigUpdatePayload> {
     const config = await this.client.getConfig(signal);
@@ -296,6 +305,14 @@ export class AccountBridge {
     );
     const rawText =
       stripBotMention(decoded.text, application.userId) || decoded.text.trim();
+    const imageReply = await readReplyImages(
+      this.client,
+      this.identity,
+      channel,
+      message,
+      history,
+      signal,
+    );
     await this.dispatch(
       {
         channel,
@@ -309,6 +326,7 @@ export class AccountBridge {
         text: formatInboundTextForAgent(rawText, channels),
         history,
         message,
+        imageReply,
       },
       signal,
       scheduler,
@@ -337,6 +355,18 @@ export class AccountBridge {
         );
         if (!(await this.#ledger!.admit(`interaction:${interaction.id}`)))
           return;
+        const history =
+          command.decision.kind === "plugin"
+            ? []
+            : await readHistory(
+                this.client,
+                this.identity,
+                this.config.application,
+                channel,
+                interaction.sequence,
+                signal,
+                channels,
+              );
         await this.dispatch(
           {
             channel,
@@ -348,7 +378,7 @@ export class AccountBridge {
             timestamp: Date.now(),
             rawText: command.body,
             text: command.body,
-            history: [],
+            history,
             interaction,
             command,
           },
@@ -369,6 +399,7 @@ export class AccountBridge {
     scheduler: AccountScheduler,
   ): Promise<void> {
     const streams: ReplyStream[] = [];
+    const inboundKey = `${turn.channel.id}:${turn.messageId}`;
     const version = this.config.application.configVersion;
     const assertCurrent = () => {
       signal.throwIfAborted();
@@ -401,32 +432,32 @@ export class AccountBridge {
     });
     try {
       assertCurrent();
-      await this.options.dispatch(
-        {
-          ...turn,
-          signal,
-          scheduler,
-          assertCurrent,
-          stream: () => {
-            const stream = new ReplyStream({
-              client: this.client,
-              identity: this.identity,
-              channel: turn.channel,
-              channels: turn.channels ?? this.#config?.channels,
-              scheduler: scheduler.scope(),
-              signal,
-              intervalMs: this.options.account.streamIntervalMs,
-              assertCurrent,
-              interaction: turn.interaction,
-              replyToId: turn.message?.id,
-            });
-            streams.push(stream);
-            return stream;
-          },
+      const inbound: InboundTurn = {
+        ...turn,
+        signal,
+        scheduler,
+        assertCurrent,
+        stream: () => {
+          const stream = new ReplyStream({
+            client: this.client,
+            identity: this.identity,
+            channel: turn.channel,
+            channels: turn.channels ?? this.#config?.channels,
+            scheduler: scheduler.scope(),
+            signal,
+            intervalMs: this.options.account.streamIntervalMs,
+            assertCurrent,
+            interaction: turn.interaction,
+            replyToId: turn.message?.id,
+          });
+          streams.push(stream);
+          return stream;
         },
-        this,
-      );
+      };
+      this.#inboundTurns.set(inboundKey, inbound);
+      await this.options.dispatch(inbound, this);
     } finally {
+      this.#inboundTurns.delete(inboundKey);
       ticker.cancel();
       await pendingTyping?.catch(() => {});
       await Promise.allSettled(streams.map((stream) => stream.close()));

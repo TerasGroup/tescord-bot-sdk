@@ -18,6 +18,7 @@ import {
   type MessageActionRow,
   type MessageDeviceIdentity,
   type RegisterBotDeviceDTO,
+  type SendInvokedBotMessageDTO,
   type Channel,
 } from "@tescord/types";
 import {
@@ -27,6 +28,14 @@ import {
   wait,
 } from "./errors.js";
 import * as parse from "./validation.js";
+import {
+  isContextImageMime,
+  matchesImageHeader,
+  type BotContextImage,
+  type BotImageContextInput,
+  type BotImageSource,
+  type MessageImages,
+} from "./images.js";
 export interface BotClientOptions {
   serverUrl: string;
   token: string;
@@ -342,6 +351,38 @@ export class BotRestClient {
           attachments: input.attachments,
           ...(input.components ? { components: input.components } : {}),
           nonce: input.nonce ?? crypto.randomUUID(),
+        },
+        retry: true,
+        signal,
+      }),
+    );
+    if (value.channelId !== channelId)
+      throw new BotClientError("PROTOCOL_ERROR");
+    return value;
+  }
+  async sendMessageFromInvocation(
+    channelId: string,
+    input: Omit<SendInvokedBotMessageDTO, "nonce"> & { nonce?: string },
+    signal?: AbortSignal,
+  ): Promise<Message> {
+    assertId(channelId);
+    assertId(input.source.channelId);
+    assertId(input.source.id);
+    if (channelId === input.source.channelId)
+      throw new BotClientError(ErrorCode.INVALID_PARAMS);
+    const { source, content, isEncrypted, nonce = crypto.randomUUID() } = input;
+    const value = parse.message(
+      await this.request(`/api/bots/@me/channels/${channelId}/messages`, {
+        method: "POST",
+        json: {
+          source: {
+            kind: source.kind,
+            id: source.id,
+            channelId: source.channelId,
+          },
+          content,
+          isEncrypted,
+          nonce,
         },
         retry: true,
         signal,
@@ -685,10 +726,113 @@ export class BotRestClient {
     file: Attachment,
     signal?: AbortSignal,
   ): Promise<Uint8Array<ArrayBuffer>> {
+    return this.downloadAttachmentWithin(
+      channelId,
+      file,
+      this.#maxAttachmentBytes,
+      signal,
+    );
+  }
+  async getImageContext(
+    input: BotImageContextInput,
+    signal?: AbortSignal,
+  ): Promise<BotContextImage[]> {
+    const { channelId, current, reply, history = [] } = input;
+    assertId(channelId);
+    const candidates: [BotImageSource, MessageImages][] = [];
+    if (current) candidates.push(["current", current]);
+    if (reply) {
+      if (reply.id !== current?.replyToId)
+        throw new BotClientError(ErrorCode.INVALID_PARAMS);
+      candidates.push(["reply", reply]);
+    }
+    const recent = [...history].sort(
+      (a, b) => (b.sequence ?? 0) - (a.sequence ?? 0),
+    );
+    candidates.push(
+      ...recent.map((message): [BotImageSource, MessageImages] => [
+        "history",
+        message,
+      ]),
+    );
+    for (const [, message] of candidates) {
+      assertId(message.id);
+      if (message.channelId !== channelId)
+        throw new BotClientError(ErrorCode.INVALID_PARAMS);
+    }
+    const images: BotContextImage[] = [];
+    const seen = new Set<string>();
+    const deadline = AbortSignal.timeout(20_000);
+    const downloadSignal = signal
+      ? AbortSignal.any([signal, deadline])
+      : deadline;
+    let remaining = 20 * 1024 * 1024;
+    let attempts = 0;
+    for (const [source, message] of candidates) {
+      for (const file of message.attachments ?? []) {
+        this.#shutdown.signal.throwIfAborted();
+        signal?.throwIfAborted();
+        if (
+          deadline.aborted ||
+          images.length >= 4 ||
+          remaining === 0 ||
+          attempts >= 12
+        )
+          return images;
+        const mimeType = file.mimeType.toLowerCase();
+        const limit = Math.min(
+          this.#maxAttachmentBytes,
+          remaining,
+          10 * 1024 * 1024,
+        );
+        if (
+          !isContextImageMime(mimeType) ||
+          !Number.isSafeInteger(file.fileSize) ||
+          file.fileSize <= 0 ||
+          file.fileSize > limit ||
+          seen.has(file.id)
+        )
+          continue;
+        seen.add(file.id);
+        attempts++;
+        try {
+          const bytes = await this.downloadAttachmentWithin(
+            channelId,
+            file,
+            Math.min(limit, file.fileSize),
+            downloadSignal,
+          );
+          if (!matchesImageHeader(bytes, mimeType)) continue;
+          images.push({
+            source,
+            messageId: message.id,
+            attachmentId: file.id,
+            mimeType,
+            bytes,
+          });
+          remaining -= bytes.byteLength;
+        } catch (error) {
+          this.#shutdown.signal.throwIfAborted();
+          signal?.throwIfAborted();
+          if (
+            error instanceof BotClientError &&
+            (error.status === 401 || error.code === ErrorCode.BOT_REVOKED)
+          )
+            throw error;
+        }
+      }
+    }
+    return images;
+  }
+  private async downloadAttachmentWithin(
+    channelId: string,
+    file: Attachment,
+    limit: number,
+    signal?: AbortSignal,
+  ): Promise<Uint8Array<ArrayBuffer>> {
     assertId(channelId);
     assertId(file.id);
-    if (file.fileSize > this.#maxAttachmentBytes)
-      throw new BotClientError("RESPONSE_TOO_LARGE");
+    if (file.fileSize > limit) throw new BotClientError("RESPONSE_TOO_LARGE");
     const access = parse.record(
       await this.request("/api/attachments/access", {
         method: "POST",
@@ -736,11 +880,7 @@ export class BotRestClient {
       await response.body?.cancel();
       throw new BotClientError("PROTOCOL_ERROR");
     }
-    const bytes = await this.readBytes(
-      response,
-      this.#maxAttachmentBytes,
-      requestSignal,
-    );
+    const bytes = await this.readBytes(response, limit, requestSignal);
     if (bytes.byteLength !== file.fileSize)
       throw new BotClientError("PROTOCOL_ERROR");
     return bytes;

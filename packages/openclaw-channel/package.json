@@ -1,6 +1,6 @@
 {
   "name": "@nekord/openclaw-channel",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "license": "MIT",
   "main": "./dist/index.js",
@@ -26,7 +26,7 @@
   },
   "devDependencies": {
     "@nekord/bot-sdk": "workspace:*",
-    "@tescord/types": "file:../../vendor/tescord-types-0.3.7-3bd3756d4b66d397.tgz"
+    "@tescord/types": "file:../../vendor/tescord-types-0.3.7-a18a2ff242ff6fdc.tgz"
   },
   "scripts": {
     "build": "tsup",

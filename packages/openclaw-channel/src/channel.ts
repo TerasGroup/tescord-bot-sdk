@@ -3,6 +3,12 @@ import {
   type PluginCommandRuntime,
 } from "openclaw/plugin-sdk/plugin-command-runtime";
 import { createAcceptedChannelDeliveryResult } from "openclaw/plugin-sdk/channel-inbound";
+import { jsonResult } from "openclaw/plugin-sdk/tool-results";
+import {
+  InteractionType,
+  MAX_MESSAGE_CONTENT_LENGTH,
+  replaceChannelNamesWithTokens,
+} from "@tescord/types";
 import {
   listAccounts,
   resolveAccount,
@@ -159,6 +165,22 @@ export const nekordPlugin: NekordPlugin = {
       hint: "channel:<id> / #channel / user:<id>",
     },
   },
+  actions: {
+    describeMessageTool: () => ({ actions: ["send"] }),
+    supportsAction: ({ action }) => action === "send",
+    prepareSendPayload: ({ ctx, to, payload }) => {
+      const invocation = resolveInvocationTarget(ctx, to);
+      return !invocation || invocation.channel.id === invocation.turn.channel.id
+        ? payload
+        : null;
+    },
+    handleAction: sendMessageAction,
+  },
+  agentPrompt: {
+    messageToolHints: () => [
+      "To post a user-requested message to a different Nekord text channel, use message(action=send) with its channel:<id> or <#id> target and the text to publish. A channel mention in a normal reply does not send a message there.",
+    ],
+  },
   outbound: {
     deliveryMode: "direct",
     textChunkLimit: 4000,
@@ -168,6 +190,130 @@ export const nekordPlugin: NekordPlugin = {
     sendMedia: async (ctx) => send(ctx),
   },
 };
+
+type MessageAction = Parameters<
+  NonNullable<NonNullable<NekordPlugin["actions"]>["handleAction"]>
+>[0];
+
+function resolveInvocationTarget(ctx: MessageAction, target: string) {
+  if (ctx.toolContext?.currentChannelProvider !== "nekord") return undefined;
+  const accountId = ctx.requesterAccountId;
+  const sourceTarget = ctx.toolContext.currentChannelId;
+  const sourceMessageId = ctx.toolContext.currentMessageId;
+  if (
+    !accountId ||
+    (ctx.accountId && ctx.accountId !== accountId) ||
+    !sourceTarget ||
+    typeof sourceMessageId !== "string" ||
+    !ctx.requesterSenderId
+  )
+    throw new ChannelError("INVALID_SEND_INVOCATION");
+  const sourceChannelId = sourceTarget.replace(/^(?:nekord:)?channel:/, "");
+  const bridge = connection(accountId);
+  const turn = bridge.getInboundTurn(sourceChannelId, sourceMessageId);
+  if (
+    !turn ||
+    turn.senderId !== ctx.requesterSenderId ||
+    turn.interaction?.ephemeral
+  )
+    throw new ChannelError("INVALID_SEND_INVOCATION");
+  turn.assertCurrent();
+  const parsed = parseOutboundTarget(target);
+  if (parsed.kind === "user") throw new ChannelError("INVALID_MESSAGE_TARGET");
+  const channels = bridge.config.channels;
+  return {
+    bridge,
+    turn,
+    channel: resolveWritableChannel(channels, parsed),
+    channels,
+    accountId,
+  };
+}
+
+async function sendMessageAction(ctx: MessageAction) {
+  if (ctx.action !== "send") throw new ChannelError("INVALID_MESSAGE_TARGET");
+  const target = ctx.params.target ?? ctx.params.to;
+  if (typeof target !== "string")
+    throw new ChannelError("INVALID_MESSAGE_TARGET");
+  const text = typeof ctx.params.message === "string" ? ctx.params.message : "";
+  const mediaUrl =
+    typeof ctx.params.mediaUrl === "string" ? ctx.params.mediaUrl : "";
+  const options = {
+    cfg: ctx.cfg,
+    accountId: ctx.accountId,
+    to: target,
+    text,
+    mediaUrl,
+    mediaAccess: ctx.mediaAccess,
+    mediaLocalRoots: ctx.mediaLocalRoots,
+    mediaReadFile: ctx.mediaReadFile,
+    replyToId: ctx.reply?.replyToId,
+    assertDirectAdapterHandoff: ctx.assertDirectAdapterHandoff,
+    onPlatformSendDispatch: ctx.onPlatformSendDispatch,
+  };
+  const invocation = resolveInvocationTarget(ctx, target);
+  if (!invocation) return jsonResult(await send(options));
+  const { bridge, turn, channel, channels, accountId } = invocation;
+  if (channel.id === turn.channel.id)
+    return jsonResult(
+      await send({ ...options, accountId, signal: turn.signal }),
+    );
+  if (
+    turn.channel.type !== "TEXT" ||
+    channel.type !== "TEXT" ||
+    !turn.channel.guildId ||
+    channel.guildId !== turn.channel.guildId ||
+    turn.senderIsBot ||
+    (turn.interaction &&
+      turn.interaction.type !== InteractionType.APPLICATION_COMMAND)
+  )
+    throw new ChannelError("INVALID_SEND_INVOCATION");
+  if (
+    mediaUrl ||
+    (Array.isArray(ctx.params.mediaUrls) && ctx.params.mediaUrls.length) ||
+    (Array.isArray(ctx.params.attachments) && ctx.params.attachments.length) ||
+    ctx.reply?.source === "explicit" ||
+    ctx.params.location
+  )
+    throw new ChannelError("CROSS_CHANNEL_TEXT_REQUIRED");
+  const plain = replaceChannelNamesWithTokens(text, channels);
+  if (!plain.trim() || plain.length > MAX_MESSAGE_CONTENT_LENGTH)
+    throw new ChannelError("INVALID_MESSAGE_LENGTH");
+  const current = bridge.assertCurrent(channel.id);
+  const isEncrypted = Boolean(current.isE2EE);
+  const content = isEncrypted
+    ? await bridge.identity.encrypt(
+        channel.id,
+        plain,
+        undefined,
+        undefined,
+        turn.signal,
+      )
+    : plain;
+  await ctx.onPlatformSendDispatch?.();
+  turn.assertCurrent();
+  ctx.assertDirectAdapterHandoff?.();
+  bridge.assertCurrent(channel.id);
+  const result = await bridge.client.sendMessageFromInvocation(
+    channel.id,
+    {
+      source: {
+        kind: turn.interaction ? "interaction" : "message",
+        id: turn.messageId,
+        channelId: turn.channel.id,
+      },
+      content,
+      isEncrypted,
+    },
+    turn.signal,
+  );
+  return jsonResult({
+    ok: true,
+    channel: "nekord",
+    channelId: channel.id,
+    messageId: result.id,
+  });
+}
 async function send(
   ctx: Parameters<
     NonNullable<NonNullable<NekordPlugin["outbound"]>["sendMedia"]>

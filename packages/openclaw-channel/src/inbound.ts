@@ -10,6 +10,7 @@ import {
   BotClientError,
   ErrorCode,
   type NekordBotClient,
+  type MessageImages,
 } from "@nekord/bot-sdk";
 import type { NekordAccount } from "./config.js";
 import { senderAllowed } from "./config.js";
@@ -20,6 +21,54 @@ export interface HistoryMessage {
   senderName: string;
   text: string;
   timestamp: number;
+  imageMessage?: MessageImages;
+}
+
+function imageMessage(message: Message): MessageImages | undefined {
+  if (
+    !message.attachments?.some((file) =>
+      /^image\/(?:png|jpeg|webp)$/i.test(file.mimeType),
+    )
+  )
+    return undefined;
+  const { id, channelId, sequence, attachments } = message;
+  return { id, channelId, sequence, attachments };
+}
+
+export async function readReplyImages(
+  client: NekordBotClient,
+  identity: PluginIdentity,
+  channel: Channel,
+  message: Message,
+  history: readonly HistoryMessage[],
+  signal: AbortSignal,
+): Promise<MessageImages | undefined> {
+  const replyId = message.replyToId;
+  if (!replyId || replyId === message.id) return undefined;
+  const present = history.find((entry) => entry.id === replyId);
+  if (present) return present.imageMessage;
+  try {
+    const reply = await client.getMessage(channel.id, replyId, signal);
+    if (
+      !reply ||
+      (channel.isE2EE && !reply.isEncrypted && reply.content) ||
+      (reply.sequence !== undefined &&
+        message.sequence !== undefined &&
+        reply.sequence >= message.sequence)
+    )
+      return undefined;
+    const images = imageMessage(reply);
+    if (images) await identity.decryptMessage(reply, signal);
+    return images;
+  } catch (error) {
+    signal.throwIfAborted();
+    if (
+      error instanceof BotClientError &&
+      (error.status === 401 || error.code === ErrorCode.BOT_REVOKED)
+    )
+      throw error;
+    return undefined;
+  }
 }
 export function shouldTrigger(
   message: Message,
@@ -104,12 +153,14 @@ export async function readHistory(
     if (channel.isE2EE && !message.isEncrypted && message.content) continue;
     try {
       const decoded = await identity.decryptMessage(message, signal);
+      const images = imageMessage(message);
       result.push({
         id: message.id,
         senderId: message.authorId,
         senderName: message.author.displayName || message.author.username,
         text: formatChannelMentionsForReader(decoded.text, channels),
         timestamp: Date.parse(message.createdAt),
+        ...(images ? { imageMessage: images } : {}),
       });
     } catch {
       signal?.throwIfAborted();

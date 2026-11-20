@@ -53,6 +53,13 @@ export type { BotGatewayEvents, BotGatewayOptions } from "./gateway.js";
 export { BotClientError, normalizeServerUrl } from "./errors.js";
 export type { BotClientErrorCode } from "./errors.js";
 export type { MessageUpdate } from "./validation.js";
+export type {
+  BotContextImage,
+  BotImageContextInput,
+  BotImageMime,
+  BotImageSource,
+  MessageImages,
+} from "./images.js";
 export {
   CHANNEL_MENTION_TOKEN_REGEX_SOURCE,
   USER_MENTION_TOKEN_REGEX_SOURCE,
@@ -78,6 +85,7 @@ export type {
   BotCommandOption,
   BotCommandOptionChoice,
   BotConfigUpdatePayload,
+  BotInvocationSource,
   BotReadyPayload,
   ButtonComponent,
   Channel,
@@ -95,6 +103,7 @@ export type {
   MessageInteractionMetadata,
   ModalActionRow,
   RegisterBotDeviceDTO,
+  SendInvokedBotMessageDTO,
   StringSelectComponent,
   StringSelectOption,
   SupportedLocale,

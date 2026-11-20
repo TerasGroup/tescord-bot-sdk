@@ -1,9 +1,9 @@
 {
   "package": "@tescord/types",
   "version": "0.3.7",
-  "artifact": "tescord-types-0.3.7-3bd3756d4b66d397.tgz",
-  "sha256": "3bd3756d4b66d397a1f5ea23285ca9b226e35b9f21ebebbcdc3fb6bcfb348e9a",
-  "sourceDigest": "fd957825860e2f17483ac4d6213f07a214126987b61a320ddd0a42e63259ecf8",
+  "artifact": "tescord-types-0.3.7-a18a2ff242ff6fdc.tgz",
+  "sha256": "a18a2ff242ff6fdca6f18fd09a390ebf80abd36aae10c065856363e3cdccdb48",
+  "sourceDigest": "fd9f40d4495110ee655b162e557caf93aa1594b93bc6e1d97d3b2b3a0939b6bf",
   "sourceDigestAlgorithm": "sha256(sorted relative path + NUL + file bytes + NUL)",
   "sourceDigestInputs": [
     "package.json",
@@ -25,7 +25,7 @@
     "src/video-embeds.ts",
     "src/voice-routing.ts"
   ],
-  "sourceBaseCommit": "6e3c63c5a75efa9260aeb8c2c3ee8c7195dfbd3b",
+  "sourceBaseCommit": "629d5dcbcdd76af7c1f3d4b087dc9588f2f63357",
   "sourceBranch": "main",
   "sourceDirty": false
 }

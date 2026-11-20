@@ -7,6 +7,7 @@ import { createRequire } from "node:module";
 import { spawn, type ChildProcess } from "node:child_process";
 import assert from "node:assert/strict";
 import { WebSocket } from "ws";
+import { encodePngRgba } from "openclaw/plugin-sdk/media-runtime";
 import {
   encryptSecureMessage,
   decryptSecureMessage,
@@ -44,6 +45,9 @@ const sessionProof: {
 }[] = [];
 let allowMockModel = false;
 let modelDelayMs = 22000;
+let relay:
+  | { marker: string; target: string; text: string; requested: boolean }
+  | undefined;
 const modelServer = createHttpServer((request, response) => {
   modelRequests.push(request.url ?? "");
   if (!allowMockModel) {
@@ -62,6 +66,38 @@ const modelServer = createHttpServer((request, response) => {
       "content-type": "text/event-stream",
       "cache-control": "no-cache",
     });
+    if (relay && !relay.requested && body.includes(relay.marker)) {
+      relay.requested = true;
+      const frame = (delta: object, finishReason: string | null) =>
+        `data: ${JSON.stringify({ id: "smoke-tool", object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: "smoke", choices: [{ index: 0, delta, finish_reason: finishReason }] })}\n\n`;
+      response.write(
+        frame(
+          {
+            role: "assistant",
+            tool_calls: [
+              {
+                index: 0,
+                id: "call_nekord_smoke",
+                type: "function",
+                function: {
+                  name: "message",
+                  arguments: JSON.stringify({
+                    action: "send",
+                    channel: "nekord",
+                    target: relay.target,
+                    message: relay.text,
+                  }),
+                },
+              },
+            ],
+          },
+          null,
+        ),
+      );
+      response.write(frame({}, "tool_calls"));
+      response.end("data: [DONE]\n\n");
+      return;
+    }
     const frame = (content: string, finish: string | null = null) =>
       `data: ${JSON.stringify({ id: "smoke-completion", object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: "smoke", choices: [{ index: 0, delta: { content }, finish_reason: finish }] })}\n\n`;
     response.write(frame("local-model-answer"));
@@ -74,7 +110,8 @@ const modelServer = createHttpServer((request, response) => {
     }, modelDelayMs);
   });
 });
-const base = "http://127.0.0.1:3101";
+const backendPort = "3103";
+const base = `http://127.0.0.1:${backendPort}`;
 const env: NodeJS.ProcessEnv = {
   NO_COLOR: "1",
   OPENCLAW_STATE_DIR: directory,
@@ -206,7 +243,10 @@ try {
     "tescord",
     [require.resolve("tsx/cli"), "scripts/run-e2e-server.ts"],
     path.join(main, "apps/server"),
-    { TESCORD_BOT_E2E_DATABASE: database },
+    {
+      TESCORD_BOT_E2E_DATABASE: database,
+      TESCORD_BOT_E2E_DIRECT_PORT: backendPort,
+    },
   );
   await until(
     () => fetch(base + "/health").then((response) => response.ok),
@@ -273,11 +313,16 @@ try {
             baseUrl: `http://127.0.0.1:${modelAddress.port}/v1`,
             api: "openai-completions",
             apiKey: "local-smoke-only",
-            models: [{ id: "smoke", name: "Smoke" }],
+            models: [{ id: "smoke", name: "Smoke", input: ["text", "image"] }],
           },
         },
       },
       agents: { defaults: { model: { primary: "smoke/smoke" } } },
+      tools: {
+        profile: "messaging",
+        toolSearch: false,
+        message: { crossContext: { allowWithinProvider: true } },
+      },
       plugins: {
         allow: ["nekord"],
         load: { paths: [path.resolve("packages/openclaw-channel")] },
@@ -668,6 +713,137 @@ try {
       historyEmpty: false,
     });
   }
+  assert.equal(modelRequests.length, 4);
+  const [sourceChannel, relayChannel] = channels;
+  assert.ok(sourceChannel && relayChannel);
+  const pngFixtures = [48, 124, 208].map((red) => {
+    const rgba = new Uint8Array(64 * 64 * 4);
+    for (let index = 0; index < rgba.length; index += 4) {
+      rgba.set([red, 255 - red, 91, 255], index);
+    }
+    return encodePngRgba(Buffer.from(rgba), 64, 64);
+  });
+  const sendImage = async (bytes: Buffer, text: string, replyToId?: string) => {
+    const file = {
+      fileName: `${crypto.randomUUID()}.png`,
+      fileSize: bytes.length,
+      mimeType: "image/png",
+    };
+    const grant = (await api("/api/attachments/presigned-url", auth, "POST", {
+      ...file,
+      channelId: sourceChannel.id,
+      purpose: "attachment",
+    })) as { uploadUrl: string; fileUrl: string };
+    const upload = await fetch(new URL(grant.uploadUrl, base), {
+      method: "PUT",
+      headers: { Authorization: auth, "Content-Type": file.mimeType },
+      body: new Uint8Array(bytes),
+    });
+    assert.ok(upload.ok, `image upload returned ${upload.status}`);
+    return (await api(
+      `/api/channels/${sourceChannel.id}/messages`,
+      auth,
+      "POST",
+      {
+        content: text,
+        replyToId,
+        attachments: [{ ...file, url: grant.fileUrl }],
+      },
+    )) as Message;
+  };
+  const quote = await sendImage(pngFixtures[0]!, "quote image");
+  for (let index = 0; index < 5; index++) {
+    await api(`/api/channels/${sourceChannel.id}/messages`, auth, "POST", {
+      content: `window filler ${index}`,
+    });
+  }
+  await sendImage(pngFixtures[1]!, "history image");
+  relay = {
+    marker: `vision-relay-${crypto.randomUUID()}`,
+    target: `channel:${relayChannel.id}`,
+    text: "vision relay to encrypted channel",
+    requested: false,
+  };
+  modelDelayMs = 100;
+  const firstModelRequest = modelBodies.length;
+  const visionSource = await sendImage(
+    pngFixtures[2]!,
+    `<@${bot.application.userId}> ${relay.marker}`,
+    quote.id,
+  );
+  await until(
+    async () => modelBodies.length,
+    (count) => count > firstModelRequest,
+  );
+  const visionRequest = JSON.parse(modelBodies[firstModelRequest]!) as {
+    tools?: Array<{ function?: { name?: string } }>;
+    messages?: Array<{ content?: unknown }>;
+  };
+  const imageParts = visionRequest.messages
+    ?.flatMap((message) =>
+      Array.isArray(message.content) ? message.content : [],
+    )
+    .filter((part) => part.type === "image_url");
+  assert.equal(
+    imageParts?.length,
+    3,
+    "all three image sources must reach the actual model input",
+  );
+  assert.ok(
+    imageParts?.every(
+      (part) =>
+        /^data:image\//.test(part.image_url?.url) &&
+        part.image_url.url.length > 100,
+    ),
+  );
+  assert.ok(
+    visionRequest.tools?.some((item) => item.function?.name === "message"),
+  );
+  const relayed = await until(
+    async () => {
+      const recent = (await api(
+        `/api/channels/${relayChannel.id}/messages`,
+        auth,
+      )) as Message[];
+      return recent.find(
+        (message) =>
+          message.authorId === bot.application.userId &&
+          !message.replyToId &&
+          message.createdAt >= quote.createdAt,
+      );
+    },
+    Boolean,
+    30_000,
+  );
+  assert.ok(relayed?.isEncrypted);
+  assert.ok(
+    logs
+      .get("tescord")
+      ?.includes(
+        `"method":"POST","url":"/api/bots/@me/channels/${relayChannel.id}/messages"`,
+      ),
+    "model invocation must send through the caller-authorized endpoint",
+  );
+  const relayDevices = (await api(
+    `/api/channels/${relayChannel.id}/e2ee/devices`,
+    auth,
+  )) as MessageDeviceIdentity[];
+  assert.equal(
+    await decryptSecureMessage(
+      JSON.parse(relayed.content),
+      relayChannel.id,
+      identity.identity,
+      identity.agreement,
+      relayDevices.find((item) => item.userId === bot.application.userId)!,
+    ),
+    relay.text,
+  );
+  outcomes.push({
+    encrypted: true,
+    command: "vision-and-cross-channel-message-tool",
+    replyDecrypted: true,
+    historyEmpty: false,
+  });
   await api(
     `/api/guilds/gld_default_01/bots/${bot.application.id}/token`,
     auth,
@@ -683,7 +859,27 @@ try {
     headers: { Authorization: `Bot ${bot.token}` },
   });
   assert.equal(oldToken.status, 401);
-  assert.equal(modelRequests.length, 4);
+  const revokedRelay = await fetch(
+    `${base}/api/bots/@me/channels/${relayChannel.id}/messages`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bot ${bot.token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        source: {
+          kind: "message",
+          id: visionSource.id,
+          channelId: sourceChannel.id,
+        },
+        content: relayed.content,
+        isEncrypted: true,
+        nonce: crypto.randomUUID(),
+      }),
+    },
+  );
+  assert.equal(revokedRelay.status, 401);
   assert.equal(
     sessionProof.some((proof) => proof.bareMentionTriggered),
     true,
@@ -707,6 +903,8 @@ try {
         nativeModelRequests,
         localMockModelRequests: modelRequests.length,
         paidModelRequests: 0,
+        visionInputImageCount: imageParts?.length,
+        crossChannelToolSend: true,
         database,
       },
       null,
@@ -715,7 +913,7 @@ try {
   );
   success = true;
   console.log(
-    "PASS real OpenClaw Gateway + Tescord: native commands, plaintext/E2EE ephemeral, trigger/context/stream edits with local mock model, CLI proactive encrypted DM, Token reset; 0 paid model requests",
+    "PASS real OpenClaw Gateway + Tescord: native commands, plaintext/E2EE ephemeral, streamed replies, three-source vision input, encrypted cross-channel tool send, proactive DM and Token reset; 0 paid model requests",
   );
 } finally {
   await fs.writeFile(
